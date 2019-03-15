@@ -1,2 +1,2 @@
 # lanvs
-LAN video stream service
+LAN video stream service based on beego framework
