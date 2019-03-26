@@ -6,9 +6,7 @@ import (
 	"math/rand"
 	"flag"
 	"strconv"
-	"bufio"
-	"os"
-	"strings"
+	"sync"
 )
 
 var (
@@ -20,131 +18,121 @@ var (
 )
 
 type (
-
 	// task item
 	TaskItem struct {
 		TaskId int
 		Body   string
 	}
-
 )
 
 // task worker
-func TaskWorker(taskQ chan TaskItem, isDone chan bool)  {
-
+func TaskWorker(taskQ chan TaskItem, partDone chan bool, allDone chan bool, wg *sync.WaitGroup)  {
+	c := time.Tick(3 * time.Second)
 	for {
 		select {
 		case oneTask := <- taskQ :
 			rand.Seed(time.Now().UnixNano())
-			i := rand.Intn(8)
+			i := rand.Intn(3)
 			// sleep
 			time.Sleep( time.Duration(i) * time.Second )
 			//fmt.Printf("random is %d second.\n", i)
-			//fmt.Printf("start to task %d\n", oneTask.TaskId)
+			fmt.Printf("\nstart to task '%s'\n", oneTask.Body)
 			//
 			//// http request
 			//fmt.Printf("=======> do task '%s'.\n", oneTask.Body)
-			//fmt.Println("do http request.")
+			fmt.Println("do http request.")
 			//
 			//// response parse
 			//fmt.Println("response parse.")
 			//
 			//// inserting to DB
-			//fmt.Println("inserting to db.")
+			fmt.Println("inserting to db.")
 
-			fmt.Printf("------> task '%s' done.\n", oneTask.Body)
+			fmt.Printf("------> task '%s' _done.\n", oneTask.Body)
 
-			if oneTask.TaskId == taskNum {
-				time.Sleep(8 * time.Second)
-				fmt.Printf("task '%d' is last task.\n", oneTask.TaskId)
-				isDone <- true
+			if len(taskQ) <= workerNum * 2  {
+				//time.Sleep(2 * time.Second)
+				//fmt.Printf("task '%d' is last task.\n", oneTask.TaskId)
+				fmt.Printf("cap: %d/%d. need to add task.\n", len(taskQ), cap(taskQ))
+				partDone <- true
 			}
+
+			if len(taskQ) <= 0 {
+				//close(taskQ)
+				fmt.Println("this is last task!!!! @@@@@@@@@@@")
+				time.Sleep(8 * time.Second)
+				allDone <- true
+			}
+			//if len(taskQ) <= 0 {
+			//	//wg.Done()
+			//	fmt.Println("task terminate.")
+			//	goto ter
+			//}
+		case <- c :
+			time.Sleep(2 * time.Second)
+			fmt.Println("this is idel.---------")
 		}
 	}
+	//ter:
 }
 
 // fill task queue
-func FillTaskQueue(taskQ chan TaskItem) {
+func FillTaskQueue(taskQ chan TaskItem, tnum int, prefix string) {
 
-	for i := 0; i < taskNum; i++ {
+	for i := 0; i < tnum; i++ {
 		var tmpT TaskItem
 		tmpT.TaskId = i + 1
-		tmpT.Body = "task-" + strconv.Itoa(i + 1)
+		tmpT.Body = prefix + "-task-" + strconv.Itoa(i + 1)
 		taskQ <- tmpT
+		fmt.Printf("task: %s is filled to channel.\n", tmpT.Body)
 	}
 }
-
-func HandleStdin(echoInfo string) string {
-	rd := bufio.NewReader(os.Stdin)
-	fmt.Printf(echoInfo)
-	isAgain, err := rd.ReadString('\n')
-	if err != nil {
-		fmt.Println("reader error:", err)
-	}
-
-	isAgain = strings.TrimSpace(isAgain)
-	return isAgain
-}
-
 
 func main() {
 
-	flag.IntVar(&workerNum, "wk", 10, "worker number in pool")
-	flag.IntVar(&taskNum, "tn", 50, "task amount")
+	flag.IntVar(&workerNum, "wk", 5, "worker number in pool")
+	flag.IntVar(&taskNum,   "tn", 10, "task amount")
 	flag.Parse()
 
 	fmt.Printf("wokernum: %d\n", workerNum)
 	fmt.Printf("taskNum: %d\n", taskNum)
 
-	taskQ  := make(chan TaskItem, workerNum)
-	isDone := make(chan bool)
+	taskQ  := make(chan TaskItem, taskNum)
+	isPartDone := make(chan bool)
+	isAllDone  := make(chan bool)
+	var wg sync.WaitGroup
 
+	wg.Add(workerNum)
 	// get tasks and fill task list
-	go FillTaskQueue(taskQ)
+	FillTaskQueue(taskQ, taskNum, "1st")
 
 	// init go routine pool
 	for i := 0; i < workerNum; i++ {
-		go TaskWorker(taskQ, isDone)
+		go TaskWorker(taskQ, isPartDone, isAllDone, &wg)
 	}
 
 	// infinite loop to do tasks
+	turn := 0
 	for {
 		// check tasklist empty or not
 		select {
-		case <- isDone:
-			time.Sleep(3 * time.Second)
-			fmt.Println("All tasks of this turn done. Query DB to fill task queue!")
-
-			for {
-				isAgain := HandleStdin("if do more tasks [Y|N]: ")
-				isAgain = strings.ToUpper(isAgain )
-
-				switch isAgain {
-				case "Y", "YES", "":
-					fmt.Printf("input is %s\n", isAgain)
-
-				getmeta:
-					str := HandleStdin("input worker and task amount [50]: ")
-					if str == "" {
-						str = "50"
-					}
-					ta, err := strconv.Atoi(str)
-					if err != nil {
-						fmt.Println("convert error:", err)
-						goto getmeta
-					}
-					taskNum = ta
-					FillTaskQueue(taskQ)
-
-					goto nextSelect
-
-				case "N", "NO" :
-					fmt.Println("Bye bye!")
-					return
-				}
+		case <- isPartDone:
+			//time.Sleep(2 * time.Second)
+			if turn < 1 {
+				fmt.Printf("----> %d tasks done. Fill task to queue!\n", workerNum)
+				FillTaskQueue(taskQ, 5, "pre" + strconv.Itoa(turn))
+			} else {
+				//fmt.Printf("channel cap: %d/%d. Bye bye!\n", len(taskQ), workerNum * 3)
+				//wg.Wait()
+				//time.Sleep(20 * time.Second)
+				//return
+				//close(taskQ)
 			}
+			turn++
+		case <- isAllDone :
+			time.Sleep(3 * time.Second)
+			fmt.Printf("channel cap: %d/%d. Bye bye!\n", len(taskQ), workerNum * 3)
+			return
 		}
-		nextSelect:
-
 	}
 }
