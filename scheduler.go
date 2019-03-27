@@ -29,7 +29,7 @@ type (
 
 // task worker
 func TaskWorker(taskQ chan TaskItem, partDone chan bool, allDone chan bool)  {
-	c := time.Tick(1 * time.Second)
+	c := time.Tick(100 * time.Millisecond)
 	for {
 		select {
 		case oneTask := <- taskQ :
@@ -120,7 +120,7 @@ func main() {
 		case <- isPartDone:
 			//time.Sleep(2 * time.Second)
 			if turn < repeat {
-				fmt.Printf("----> %d tasks done. Fill task to queue!\n", workerNum)
+				fmt.Printf("----> %d tasks done. Fill task to queue in %dth time!\n", workerNum, turn + 1)
 				go FillTaskQueue(taskQ, 5, "pre" + strconv.Itoa(turn))
 			} else {
 				//fmt.Printf("channel cap: %d/%d. Bye bye!\n", len(taskQ), workerNum * 3)
