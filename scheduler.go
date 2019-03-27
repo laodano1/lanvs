@@ -6,7 +6,6 @@ import (
 	"math/rand"
 	"flag"
 	"strconv"
-	"sync"
 )
 
 var (
@@ -15,6 +14,9 @@ var (
 
 	// task amount
 	taskNum int
+
+	// repeat number
+	repeat int
 )
 
 type (
@@ -26,8 +28,8 @@ type (
 )
 
 // task worker
-func TaskWorker(taskQ chan TaskItem, partDone chan bool, allDone chan bool, wg *sync.WaitGroup)  {
-	c := time.Tick(3 * time.Second)
+func TaskWorker(taskQ chan TaskItem, partDone chan bool, allDone chan bool)  {
+	c := time.Tick(1 * time.Second)
 	for {
 		select {
 		case oneTask := <- taskQ :
@@ -53,14 +55,14 @@ func TaskWorker(taskQ chan TaskItem, partDone chan bool, allDone chan bool, wg *
 			if len(taskQ) <= workerNum * 2  {
 				//time.Sleep(2 * time.Second)
 				//fmt.Printf("task '%d' is last task.\n", oneTask.TaskId)
-				fmt.Printf("cap: %d/%d. need to add task.\n", len(taskQ), cap(taskQ))
+				//fmt.Printf("cap: %d/%d. need to add task.\n", len(taskQ), cap(taskQ))
 				partDone <- true
 			}
 
 			if len(taskQ) <= 0 {
 				//close(taskQ)
-				fmt.Println("this is last task!!!! @@@@@@@@@@@")
-				time.Sleep(8 * time.Second)
+				//fmt.Println("this is last task!!!! @@@@@@@@@@@")
+				time.Sleep(3 * time.Second)
 				allDone <- true
 			}
 			//if len(taskQ) <= 0 {
@@ -69,11 +71,10 @@ func TaskWorker(taskQ chan TaskItem, partDone chan bool, allDone chan bool, wg *
 			//	goto ter
 			//}
 		case <- c :
-			time.Sleep(2 * time.Second)
-			fmt.Println("this is idel.---------")
+			//time.Sleep(1 * time.Second)
+			//fmt.Println("this is idel.---------")
 		}
 	}
-	//ter:
 }
 
 // fill task queue
@@ -92,23 +93,23 @@ func main() {
 
 	flag.IntVar(&workerNum, "wk", 5, "worker number in pool")
 	flag.IntVar(&taskNum,   "tn", 10, "task amount")
+	flag.IntVar(&repeat,   "rp", 2, "task amount")
 	flag.Parse()
 
 	fmt.Printf("wokernum: %d\n", workerNum)
 	fmt.Printf("taskNum: %d\n", taskNum)
 
 	taskQ  := make(chan TaskItem, taskNum)
+
 	isPartDone := make(chan bool)
 	isAllDone  := make(chan bool)
-	var wg sync.WaitGroup
 
-	wg.Add(workerNum)
 	// get tasks and fill task list
 	FillTaskQueue(taskQ, taskNum, "1st")
 
 	// init go routine pool
 	for i := 0; i < workerNum; i++ {
-		go TaskWorker(taskQ, isPartDone, isAllDone, &wg)
+		go TaskWorker(taskQ, isPartDone, isAllDone)
 	}
 
 	// infinite loop to do tasks
@@ -118,19 +119,20 @@ func main() {
 		select {
 		case <- isPartDone:
 			//time.Sleep(2 * time.Second)
-			if turn < 1 {
+			if turn < repeat {
 				fmt.Printf("----> %d tasks done. Fill task to queue!\n", workerNum)
-				FillTaskQueue(taskQ, 5, "pre" + strconv.Itoa(turn))
+				go FillTaskQueue(taskQ, 5, "pre" + strconv.Itoa(turn))
 			} else {
 				//fmt.Printf("channel cap: %d/%d. Bye bye!\n", len(taskQ), workerNum * 3)
 				//wg.Wait()
 				//time.Sleep(20 * time.Second)
 				//return
 				//close(taskQ)
+				//fmt.Println("in else")
 			}
 			turn++
 		case <- isAllDone :
-			time.Sleep(3 * time.Second)
+			time.Sleep(1 * time.Second)
 			fmt.Printf("channel cap: %d/%d. Bye bye!\n", len(taskQ), workerNum * 3)
 			return
 		}
